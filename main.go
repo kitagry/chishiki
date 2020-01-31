@@ -3,17 +3,15 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"image"
-	"image/color"
+	"image/draw"
 	"image/png"
 	"io/ioutil"
-	"net/http"
 	"os"
+	"strings"
 
-	"github.com/disintegration/imaging"
 	"github.com/golang/freetype/truetype"
 	"github.com/mattn/go-sixel"
 	"golang.org/x/image/font"
@@ -26,9 +24,11 @@ func main() {
 	var nlong int
 	var text string
 	var fontPath string
+	var outputFile string
 	flag.IntVar(&nlong, "n", 1, "how long cat")
-	flag.StringVar(&text, "t", "知識", "what is this chishiki")
+	flag.StringVar(&text, "t", "", "what is this chishiki")
 	flag.StringVar(&fontPath, "f", "", "font path")
+	flag.StringVar(&outputFile, "o", "", "output file name (only png)")
 	flag.Parse()
 
 	if fontPath == "" && len([]byte(text)) != len([]rune(text)) {
@@ -39,9 +39,24 @@ func main() {
 `, nlong, text)
 	}
 
-	top, middle, bottom, err := getImages()
+	if outputFile != "" && !strings.HasSuffix(outputFile, ".png") {
+		fmt.Printf("Cannot output to '%s'\nYou should set '*.png' file\n", outputFile)
+		return
+	}
+
+	top, err := getImage("/data.png")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("cannot load /data.png: %v", err)
+		return
+	}
+	bottom, err := getImage("/data2.png")
+	if err != nil {
+		fmt.Printf("cannot load /data.png: %v", err)
+		return
+	}
+	middle, err := getImage("/data3.png")
+	if err != nil {
+		fmt.Printf("cannot load /data.png: %v", err)
 		return
 	}
 	width := top.Bounds().Dx()
@@ -53,45 +68,46 @@ func main() {
 	}
 
 	height := top.Bounds().Dy() + bottom.Bounds().Dy()*nlong + middle.Bounds().Dy() + textImg.Bounds().Dy()
-	dst := imaging.New(width, height, color.NRGBA{0, 0, 0, 0})
+	rect := image.Rect(0, 0, width, height)
+	canvas := image.NewRGBA(rect)
 	h := 0
-	dst = imaging.Paste(dst, top, image.Pt(0, h))
+	draw.Draw(canvas, image.Rect(0, h, width, h+top.Bounds().Dy()), top, image.ZP, draw.Over)
 	h += top.Bounds().Dy()
 	for i := 0; i < nlong; i++ {
-		dst = imaging.Paste(dst, middle, image.Pt(0, h))
+		draw.Draw(canvas, image.Rect(0, h, width, h+middle.Bounds().Dy()), middle, image.ZP, draw.Over)
 		h += middle.Bounds().Dy()
 	}
-	dst = imaging.Paste(dst, bottom, image.Pt(0, h))
+	draw.Draw(canvas, image.Rect(0, h, width, h+bottom.Bounds().Dy()), bottom, image.ZP, draw.Over)
 	h += bottom.Bounds().Dy()
-	dst = imaging.Paste(dst, textImg, image.Pt(0, h))
+	draw.Draw(canvas, image.Rect(0, h, width, h+textImg.Bounds().Dy()), textImg, image.ZP, draw.Over)
 
-	enc := sixel.NewEncoder(os.Stdout)
-	enc.Encode(dst)
+	if outputFile == "" {
+		enc := sixel.NewEncoder(os.Stdout)
+		enc.Encode(canvas)
+	} else {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Printf("Cannot create %s", outputFile)
+			return
+		}
+		defer f.Close()
+
+		png.Encode(f, canvas)
+	}
 }
 
-func getImages() (top, middle, bottom image.Image, err error) {
-	var f http.File
-	f, err = Assets.Open("/data.png")
+func getImage(path string) (image.Image, error) {
+	f, err := Assets.Open(path)
 	if err != nil {
-		return nil, nil, nil, xerrors.Errorf("cannot open top file: %w", err)
+		return nil, xerrors.Errorf("cannot open top file: %w", err)
 	}
 	defer f.Close()
-	top, _, _ = image.Decode(f)
 
-	f, err = Assets.Open("/data2.png")
+	img, _, err := image.Decode(f)
 	if err != nil {
-		return nil, nil, nil, xerrors.Errorf("cannot open bottom file: %w", err)
+		return nil, xerrors.Errorf("cannot decode image: %w", err)
 	}
-	defer f.Close()
-	bottom, _, _ = image.Decode(f)
-
-	f, err = Assets.Open("/data3.png")
-	if err != nil {
-		return nil, nil, nil, xerrors.Errorf("cannot open middle file: %w", err)
-	}
-	defer f.Close()
-	middle, _, _ = image.Decode(f)
-	return
+	return img, nil
 }
 
 func getTextImage(text string, imageWidth int, fontPath string) (*image.RGBA, error) {
@@ -137,11 +153,5 @@ func getTextImage(text string, imageWidth int, fontPath string) (*image.RGBA, er
 	dr.Dot.Y = fixed.I(textTopMargin)
 
 	dr.DrawString(text)
-
-	buf := &bytes.Buffer{}
-	err = png.Encode(buf, img)
-	if err != nil {
-		return nil, xerrors.Errorf("cannot encode img: %w", err)
-	}
 	return img, nil
 }
