@@ -34,7 +34,7 @@ func main() {
 	if fontPath == "" && len([]byte(text)) != len([]rune(text)) {
 		fmt.Println("\x1b[33m[WARNING] If you use multibyte string, you should font path\x1b[0m")
 		fmt.Printf(`Example
-	chishiki -n %d -t '%s' -f [YOUR_LANGUAGE_PATH]
+	chishiki -n %d -t '%s' -f [YOUR_FONT_PATH]
 
 `, nlong, text)
 	}
